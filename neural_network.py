@@ -1,83 +1,56 @@
 import numpy as np
-from typing import Union
+from typing import Self
 
 
-def relu(n: float) -> float:
-    return max(0, n)
+def leaky_relu(n: float) -> float:
+    return n if n > 0 else 0.01 * n
 
 
-class Model: ...
+def leaky_relu_grad(n: float) -> float:
+    return 1 if n > 0 else 0.01
 
 
-class Layer:
-    def __init__(
-        self, cnt: int, learning_rate: float, child_layer: Union["Layer", "InputLayer"]
-    ):
-        self.child_layer = child_layer
-        self.cnt = cnt
-        self.neurons = [
-            Neuron(bias, learning_rate, child_layer)
-            for bias in np.random.randn(cnt)
-        ]
-
-    def learn(self, self_act_derivatives: np.ndarray):
-        """해당 층 뉴런들 학습"""
-        child_act_derivatives = np.zeros((self.child_layer.cnt,))
-        for n, act_derivative in zip(self.neurons, self_act_derivatives):
-            child_act_derivatives += n.learn(act_derivative)
-        if isinstance(self.child_layer, Layer):
-            self.child_layer.learn(child_act_derivatives)
-
-    def get_activations(self) -> np.ndarray:
-        child_activations = self.child_layer.get_activations()
-        activations = np.array(
-            list(map(lambda x: x.get_result(child_activations), self.neurons))
-        )
-        return activations
+vectorized_relu = np.vectorize(leaky_relu)
+vectorized_relu_grad = np.vectorize(leaky_relu_grad)
 
 
 class InputLayer:
     def __init__(self, cnt: int):
         self.cnt = cnt
-        self.activations = np.zeros((cnt,))
+        self.activations = np.zeros((1, cnt))
 
-    def get_activations(self) -> np.ndarray:
-        """활성도 벡터"""
+    def forward_propagation(self):
         return self.activations
 
-    def set_activations(self, data: np.ndarray):
-        """입력"""
-        self.activations = data
 
-
-class Neuron:
-    def __init__(
-        self, bias: float, learning_rate: float, child_layer: Layer | InputLayer
-    ):
+class Layer:
+    def __init__(self, cnt: int, learning_rate: float, child_layer: Self | InputLayer):
+        self.cnt = cnt
         self.lr = learning_rate
-        self.child_layer: Layer
-
-        self.bias = bias
         self.child_layer = child_layer
-        self.weights = np.abs(np.random.randn(child_layer.cnt)) * np.sqrt(2 / child_layer.cnt)
 
-    def get_result(self, child_activations: np.ndarray):
-        """자식 층에서 가중치에 활성도를 곱한 값을 가져와 편향을 더합니다."""
-        self.child_activations = child_activations
-        return relu(sum(child_activations * self.weights + self.bias))
+        self.bias: np.ndarray
+        self.weight: np.ndarray
+        self.bias = np.zeros((cnt, 1))  # (현재층 X 1)
+        self.weight = np.random.randn(child_layer.cnt, cnt) * np.sqrt(
+            2 / child_layer.cnt
+        )  # (이전층 X 현재층)
+        self.activation_grad = np.zeros((1, cnt))
 
-    def learn(self, self_act_derivative: float):
-        """학습"""
-        activations = self.child_activations
-        z = sum(activations * self.weights + self.bias)
+        self.weighted_sum: np.ndarray
 
-        act_z_de = 1 if z > 0 else 0
+    def forward_propagation(self) -> np.ndarray:
+        self.prev_activation = self.child_layer.forward_propagation()
+        self.weighted_sum = self.prev_activation.dot(self.weight) + self.bias.T
+        return vectorized_relu(self.weighted_sum)
 
-        bias_derivative = 1 * act_z_de * self_act_derivative
-        weight_derivative = activations * bias_derivative  # 뒤쪽 식이 똑같기 때문
-        child_act_derivative = self.weights * bias_derivative
+    def back_propagation(self, activation_grad: np.ndarray):
+        bias_grad = vectorized_relu_grad(self.weighted_sum).T * activation_grad.T
+        weight_grad = self.prev_activation.T.dot(bias_grad.T)
 
-        self.bias -= self.lr * bias_derivative
-        self.weights -= self.lr * weight_derivative
-        # print(self.bias, self.weights)
-        return child_act_derivative
+        self.bias -= self.lr * bias_grad
+        self.weight -= self.lr * weight_grad
+
+        if isinstance(self.child_layer, Layer):
+            prev_activation_grad = self.weight.dot(bias_grad).T
+            self.child_layer.back_propagation(prev_activation_grad)
