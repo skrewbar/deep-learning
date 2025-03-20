@@ -10,8 +10,8 @@ def leaky_relu_grad(n: float) -> float:
     return 1 if n > 0 else 0.01
 
 
-vectorized_relu = np.vectorize(leaky_relu)
-vectorized_relu_grad = np.vectorize(leaky_relu_grad)
+vectorized_leaky_relu = np.vectorize(leaky_relu)
+vectorized_leaky_relu_grad = np.vectorize(leaky_relu_grad)
 
 
 class InputLayer:
@@ -42,10 +42,10 @@ class Layer:
     def forward_propagation(self) -> np.ndarray:
         self.prev_activation = self.child_layer.forward_propagation()
         self.weighted_sum = self.prev_activation.dot(self.weight) + self.bias.T
-        return vectorized_relu(self.weighted_sum)
+        return vectorized_leaky_relu(self.weighted_sum)
 
     def back_propagation(self, activation_grad: np.ndarray):
-        bias_grad = vectorized_relu_grad(self.weighted_sum).T * activation_grad.T
+        bias_grad = vectorized_leaky_relu_grad(self.weighted_sum).T * activation_grad.T
         weight_grad = self.prev_activation.T.dot(bias_grad.T)
 
         self.bias -= self.lr * bias_grad
